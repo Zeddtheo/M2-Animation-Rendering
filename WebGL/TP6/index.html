@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Projet Drones</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0"
+    />
+    <link type="text/css" rel="stylesheet" href="main.css" />
+  </head>
+
+  <body>
+    <div id="info"></div>
+    <div id="container"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../three.js-master/build/three.module.js",
+          "three/addons/": "../three.js-master/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import Stats from "three/addons/libs/stats.module.js";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import { MTLLoader } from "three/addons/loaders/MTLLoader.js";
+      import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
+      import GUI from "https://cdn.jsdelivr.net/npm/lil-gui@0.19/+esm";
+
+      let container, stats;
+      let camera, controls, scene, renderer;
+      let textureLoader;
+      const clock = new THREE.Clock();
+
+      let clickRequest = false;
+      const mouseCoords = new THREE.Vector2();
+      const raycaster = new THREE.Raycaster();
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+
+      // drone
+      let waypoints = [];
+      let droneMeshes = [];
+      let dronesData = [];
+      let currentFrame = 0;
+      let framerate = 30;
+      let maxFrame = 0;
+
+      // helpers
+      let axesHelper;
+      let gridHelper;
+      // gui
+      const gui = new GUI();
+      const params = {
+        showAxesHelper: false,
+        showGridHelper: false,
+        showDroneTrack: false,
+        showVerticalLines: false,
+        collisionInfo: "",
+        highSpeedInfo: "",
+        toggleFullScreen: function () {
+          toggleFullScreen();
+        },
+      };
+      let maxSpeedThreshold = 10;
+      const animationControls = {
+        play: false,
+        restart: function () {
+          currentFrame = 0;
+          animationControls.frame = 0;
+          frameController.updateDisplay();
+        },
+        frame: 0,
+        maxFrame: 480,
+        goToFrame: function (value) {
+          currentFrame = value;
+          animationControls.frame = value;
+        },
+        toggleFullScreen: toggleFullScreen,
+      };
+      let isPlaying = false;
+
+      function init() {
+        initGraphics();
+
+        initInput();
+
+        loadJsonData();
+
+        createObjects();
+      }
+
+      function initGraphics() {
+        container = document.getElementById("container");
+
+        camera = new THREE.PerspectiveCamera(
+          45,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          10000
+        );
+
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xbfd1e5);
+
+        camera.position.set(5, 1000, 0);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        textureLoader = new THREE.TextureLoader();
+
+        const ambientLight = new THREE.AmbientLight(0xbbbbbb);
+        scene.add(ambientLight);
+
+        const light = new THREE.DirectionalLight(0xffffff, 3);
+        light.position.set(-10, 10, 5);
+        light.castShadow = true;
+        const d = 10;
+        light.shadow.camera.left = -d;
+        light.shadow.camera.right = d;
+        light.shadow.camera.top = d;
+        light.shadow.camera.bottom = -d;
+
+        light.shadow.camera.near = 2;
+        light.shadow.camera.far = 50;
+
+        light.shadow.mapSize.x = 1024;
+        light.shadow.mapSize.y = 1024;
+
+        scene.add(light);
+
+        stats = new Stats();
+        stats.domElement.style.position = "absolute";
+        stats.domElement.style.top = "0px";
+        container.appendChild(stats.domElement);
+        // Ground
+        const groundGeometry = new THREE.PlaneGeometry(1000, 1000);
+        const groundMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.set(0, -0.5, 0);
+        ground.receiveShadow = true;
+
+        textureLoader.load("textures/grid.png", function (texture) {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.repeat.set(40, 40);
+          ground.material.map = texture;
+          ground.material.needsUpdate = true;
+        });
+
+        scene.add(ground);
+        //skybox
+        var textures_skybox = [
+          "./objets/skybox/xp.jpg",
+          "./objets/skybox/xn.jpg",
+          "./objets/skybox/yp.jpg",
+          "./objets/skybox/yn.jpg",
+          "./objets/skybox/zp.jpg",
+          "./objets/skybox/zn.jpg",
+        ];
+        scene.background = new THREE.CubeTextureLoader().load(textures_skybox);
+        //helpers
+        axesHelper = new THREE.AxesHelper(500);
+        axesHelper.visible = false;
+        scene.add(axesHelper);
+
+        gridHelper = new THREE.GridHelper(1000, 1000);
+        gridHelper.visible = false;
+        scene.add(gridHelper);
+
+        // GUI
+        gui
+          .add(params, "showAxesHelper")
+          .name("Toggle Axes Helper")
+          .onChange(function (value) {
+            toggleAxesHelper(value);
+          });
+
+        gui
+          .add(params, "showGridHelper")
+          .name("Toggle Grid Helper")
+          .onChange(function (value) {
+            toggleGridHelper(value);
+          });
+
+        gui
+          .add(params, "showVerticalLines")
+          .name("Toggle Vertical Lines")
+          .onChange(function (value) {
+            toggleVerticalLines(value);
+          });
+
+        gui
+          .add(params, "showDroneTrack")
+          .name("Toggle Drone Track")
+          .onChange(function (value) {
+            toggleDroneTracks(value);
+          });
+
+        gui.add(params, "collisionInfo").name("Collision Info").listen();
+        gui.add(params, "highSpeedInfo").name("High Speed Drones").listen();
+
+        const frameController = gui
+          .add(animationControls, "frame", 0, animationControls.maxFrame)
+          .name("Go to Frame")
+          .listen()
+          .onChange(function (value) {
+            animationControls.goToFrame(value);
+          });
+
+        gui
+          .add(animationControls, "play")
+          .name("Play / Pause")
+          .onChange(function (value) {
+            togglePlay(value);
+          });
+
+        gui
+          .add(
+            {
+              restartAnimation: function () {
+                currentFrame = 0;
+                animationControls.frame = 0;
+                if (frameController) {
+                  frameController.updateDisplay();
+                }
+              },
+            },
+            "restartAnimation"
+          )
+          .name("Restart Animation");
+
+        gui
+          .add(animationControls, "toggleFullScreen")
+          .name("Toggle Fullscreen");
+
+        gui.open();
+
+        window.addEventListener("resize", onWindowResize);
+      }
+
+      function updateMaxFrame(newMaxFrame) {
+        animationParams.maxFrame = newMaxFrame;
+        frameController.max(newMaxFrame);
+        frameController.updateDisplay();
+      }
+
+      function updateVerticalLine(droneMesh, verticalLine) {
+        const positions = new Float32Array([
+          droneMesh.position.x,
+          droneMesh.position.y,
+          droneMesh.position.z,
+          droneMesh.position.x,
+          0,
+          droneMesh.position.z,
+        ]);
+
+        verticalLine.geometry.setAttribute(
+          "position",
+          new THREE.BufferAttribute(positions, 3)
+        );
+        verticalLine.geometry.attributes.position.needsUpdate = true;
+      }
+
+      function initInput() {
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "g" || event.key === "G") {
+            toggleFullScreen();
+          } else if (event.key === "t" || event.key === "T") {
+            toggleTrails();
+          }
+        });
+      }
+
+      function loadJsonData() {
+        fetch("waypoints.json")
+          .then((response) => response.json())
+          .then((data) => {
+            dronesData = data.drones;
+            framerate = data.framerate;
+            console.log("Framerate:", framerate);
+            console.log("Drones data loaded successfully");
+            animateDrones();
+          })
+          .catch((error) => console.error("Error loading JSON:", error));
+      }
+
+      function createObjects() {
+        const mtlLoader = new MTLLoader();
+        mtlLoader.load("objets/dron.mtl", function (materials) {
+          materials.preload();
+
+          const objLoader = new OBJLoader();
+          objLoader.setMaterials(materials);
+
+          for (let i = 0; i < dronesData.length; i++) {
+            objLoader.load(
+              "objets/dron.obj",
+              function (object) {
+                console.log("Model loaded successfully");
+
+                object.position.set(0, 0, 0);
+                object.scale.set(1, 1, 1);
+
+                const name = "drone" + (i + 1);
+                const nameSprite = createTextSprite(name);
+                nameSprite.position.set(0, 1.5, 0);
+                object.add(nameSprite);
+
+                const lineGeometry = new THREE.BufferGeometry();
+                const lineMaterial = new THREE.LineBasicMaterial({
+                  color: 0x0000ff,
+                });
+                const verticalLine = new THREE.Line(lineGeometry, lineMaterial);
+                verticalLine.visible = false;
+                scene.add(verticalLine);
+                dronesData[i].verticalLine = verticalLine;
+
+                scene.add(object);
+                droneMeshes.push(object);
+                const points = dronesData[i].waypoints.map(
+                  (waypoint) =>
+                    new THREE.Vector3(
+                      waypoint.position.lng_X,
+                      waypoint.position.alt_Y,
+                      waypoint.position.lat_Z
+                    )
+                );
+                const geometry = new THREE.BufferGeometry().setFromPoints(
+                  points
+                );
+                const material = new THREE.LineBasicMaterial({
+                  color: 0xff0000,
+                });
+                const line = new THREE.Line(geometry, material);
+                line.visible = false;
+                scene.add(line);
+                dronesData[i].trail = line;
+
+                const collisionRadius = 1;
+
+                dronesData[i].previousPosition = new THREE.Vector3();
+                dronesData[i].collisionSphere = new THREE.Sphere(
+                  new THREE.Vector3(),
+                  collisionRadius
+                );
+              },
+              function (xhr) {
+                console.log((xhr.loaded / xhr.total) * 100 + "% loaded");
+              },
+              function (error) {
+                console.error("An error happened during loading model:", error);
+              }
+            );
+          }
+        });
+      }
+
+      function animateDrones() {
+        requestAnimationFrame(animateDrones);
+
+        if (dronesData.length > 0 && dronesData[0].waypoints.length > 0) {
+          maxFrame =
+            dronesData[0].waypoints[dronesData[0].waypoints.length - 1].frame;
+        }
+
+        if (isPlaying) {
+          currentFrame = (currentFrame + 1) % (maxFrame + 1);
+          animationControls.frame = currentFrame;
+
+          dronesData.forEach((drone, index) => {
+            const waypoint = drone.waypoints.find(
+              (w) => w.frame === currentFrame
+            );
+            if (waypoint && droneMeshes[index]) {
+              const pos = waypoint.position;
+              droneMeshes[index].position.set(pos.lng_X, pos.alt_Y, pos.lat_Z);
+            }
+          });
+        }
+
+        dronesData.forEach((drone, index) => {
+          if (droneMeshes[index] && drone.collisionSphere) {
+            drone.collisionSphere.center.copy(droneMeshes[index].position);
+          }
+        });
+
+        const collisions = checkCollisions();
+        if (collisions.length > 0) {
+          params.collisionInfo = collisions
+            .map(
+              (c) =>
+                `Collision between drone ${c.drone1} and ${
+                  c.drone2
+                } at time ${c.time.toFixed(2)}s`
+            )
+            .join("\n");
+        }
+
+        dronesData.forEach((drone, index) => {
+          const waypoint = drone.waypoints.find(
+            (w) => w.frame === currentFrame
+          );
+          if (waypoint && droneMeshes[index]) {
+            const pos = waypoint.position;
+            droneMeshes[index].position.set(pos.lng_X, pos.alt_Y, pos.lat_Z);
+
+            updateVerticalLine(droneMeshes[index], drone.verticalLine);
+          }
+        });
+
+        updateSpeed();
+        const highSpeedDrones = checkHighSpeedDrones();
+        if (highSpeedDrones.length > 0) {
+          params.highSpeedInfo = highSpeedDrones
+            .map(
+              (d) =>
+                `Drone ${d.droneIndex}: Speed ${d.speed.toFixed(
+                  2
+                )} at time ${d.time.toFixed(2)}s`
+            )
+            .join("\n");
+        } else {
+          params.highSpeedInfo = "";
+        }
+
+        controls.update();
+        renderer.render(scene, camera);
+        stats.update();
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      function togglePlay(value) {
+        isPlaying = value;
+      }
+
+      function toggleFullScreen() {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch((err) => {
+            alert(
+              `Error attempting to enable full-screen mode: ${err.message} (${err.name})`
+            );
+          });
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen();
+          }
+        }
+      }
+
+      function toggleDroneTracks() {
+        dronesData.forEach((drone) => {
+          if (drone.trail) {
+            drone.trail.visible = !drone.trail.visible;
+          }
+        });
+      }
+
+      function toggleAxesHelper(visible) {
+        axesHelper.visible = visible;
+      }
+
+      function toggleGridHelper(visible) {
+        gridHelper.visible = visible;
+      }
+
+      function createTextSprite(text) {
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        context.font = "24px Arial";
+        context.fillStyle = "rgba(255, 255, 255, 1)";
+        context.fillText(text, 4, 24);
+
+        const texture = new THREE.Texture(canvas);
+        texture.needsUpdate = true;
+
+        const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+        const sprite = new THREE.Sprite(spriteMaterial);
+        sprite.scale.set(32, 16, 32);
+
+        return sprite;
+      }
+
+      function toggleVerticalLines(visible) {
+        dronesData.forEach((drone) => {
+          if (drone.verticalLine) {
+            drone.verticalLine.visible = visible;
+          }
+        });
+      }
+
+      function checkCollisions() {
+        const collisions = [];
+        for (let i = 0; i < dronesData.length; i++) {
+          for (let j = i + 1; j < dronesData.length; j++) {
+            if (
+              dronesData[i].collisionSphere &&
+              dronesData[j].collisionSphere &&
+              dronesData[i].collisionSphere.intersectsSphere(
+                dronesData[j].collisionSphere
+              )
+            ) {
+            }
+          }
+        }
+        return collisions;
+      }
+
+      function updateSpeed() {
+        dronesData.forEach((drone, index) => {
+          if (droneMeshes[index] && drone.previousPosition) {
+            const currentPosition = droneMeshes[index].position;
+            const distance = currentPosition.distanceTo(drone.previousPosition);
+            const speed = distance * framerate;
+
+            drone.currentSpeed = speed;
+            drone.previousPosition.copy(currentPosition);
+          }
+        });
+      }
+
+      function checkHighSpeedDrones() {
+        const highSpeedDrones = [];
+
+        dronesData.forEach((drone, index) => {
+          if (drone.currentSpeed > maxSpeedThreshold) {
+            highSpeedDrones.push({
+              droneIndex: index,
+              speed: drone.currentSpeed,
+              time: currentFrame / framerate,
+            });
+          }
+        });
+
+        return highSpeedDrones;
+      }
+
+      init();
+    </script>
+  </body>
+</html>

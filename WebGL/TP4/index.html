@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+ <head>
+    <meta charset="utf-8" />
+    <title>TP4-Animation et Rendu</title>
+    <link rel="stylesheet" type="text/css" href="style.css">
+ </head>
+ <body>
+    <div id="info"></div>
+    <script type="importmap">
+    {
+        "imports": {
+        "three": "../three.js-master/build/three.module.js",
+        "three/addons/": "../three.js-master/examples/jsm/",
+        "three/loaders/": "../three.js-master/examples/jsm/loaders/"  
+        }
+    }
+    </script>
+    <script src="../stats.js-master/build/stats.min.js"></script>
+    <script type="module">
+        import * as THREE from 'three';
+        import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+        import {OBJLoader} from 'three/loaders/OBJLoader.js';
+        import {MTLLoader} from 'three/loaders/MTLLoader.js';
+        import {PointerLockControls} from 'three/addons/controls/PointerLockControls.js';
+
+        const objects = [];
+        let raycaster;
+
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let canJump = false;
+
+        let prevTime = performance.now();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        const vertex = new THREE.Vector3();
+        const color = new THREE.Color();
+
+        //stats
+        var stats = new Stats(); 
+        document.body.appendChild( stats.dom );
+        //scene
+        var scene = new THREE.Scene();
+            scene.background = new THREE.Color("rgb(0, 0, 0)");
+        var camera = new THREE.PerspectiveCamera( 75,
+            window.innerWidth/window.innerHeight, 1, 1000 );
+        camera.position.y = 1;   
+
+        //renderer
+        var renderer = new THREE.WebGLRenderer( {antialias: true} );
+            renderer.setSize( window.innerWidth, window.innerHeight );
+        document.body.appendChild( renderer.domElement );
+        renderer.toneMappingExposure = 2.0;
+        
+        //lumiere
+        var lumiere = new THREE.AmbientLight( 0x404040 ) ; 
+        scene.add( lumiere );
+        var lumiere = new THREE.DirectionalLight( 0xffffff);
+        lumiere.position.set( 1, 1, 1 );
+        lumiere.intensity = 1.5; 
+        scene.add( lumiere );
+        //helpers
+        var axesHelper = new THREE.AxesHelper( 5 );
+        var size = 20;
+        var divisions = 10;
+        var gridHelper = new THREE.GridHelper( size, divisions );
+        //plane
+        var texture = new THREE.TextureLoader().load( 'pics/sol.jpg' );
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set( 5, 5 );
+
+        var geometry = new THREE.PlaneGeometry(  30, 30, 32 );
+        var material = new THREE.MeshPhongMaterial( { 
+            color: 0x00ff00,
+            specular: 0xffffff,
+            shininess: 40,
+            map: texture } );
+        var plane = new THREE.Mesh( geometry, material );
+        scene.add( plane )
+        plane.rotation.set(-Math.PI / 2, 0, 0);
+        //fog
+        scene.fog = new THREE.Fog( 0xcccccc, 10, 50 );
+        
+        
+        //load lod vaches
+        var cowHigh, cowMid, cowLow;
+        var mtlLoader = new MTLLoader();
+        var objLoader = new OBJLoader();
+
+        mtlLoader.setPath('objets/cow/');
+        mtlLoader.load("cow.mtl", function(materials) {
+            materials.preload();
+            objLoader.setMaterials(materials);
+            objLoader.setPath('objets/cow/');
+
+            loadModel('cow_high.obj', function(object) {
+                cowHigh = object;
+                checkAllModelsLoaded();
+            });
+
+            loadModel('cow_mid.obj', function(object) {
+                cowMid = object;
+                checkAllModelsLoaded();
+            });
+
+            loadModel('cow_low.obj', function(object) {
+                cowLow = object;
+                checkAllModelsLoaded();
+            });
+        }, function(xhr) {
+            console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+        }, function(error) {
+            console.error("Erreur de chargement");
+        });
+
+        function loadModel(modelPath, callback) {
+            objLoader.load(modelPath, function(object) {
+                callback(object);
+            });
+        }
+
+        function checkAllModelsLoaded() {
+            if (cowHigh && cowMid && cowLow) {
+                createLODVaches();
+            }
+        }
+
+        function createLODVaches() {
+            var troupeau_vaches = new THREE.Group();
+
+            for (var i = 0; i < 100; i++) {
+                var lod_vache = new THREE.LOD();
+                lod_vache.addLevel(cowHigh.clone(), 0);
+                lod_vache.addLevel(cowMid.clone(), 10);
+                lod_vache.addLevel(cowLow.clone(), 20);
+                lod_vache.position.set(Math.random() * 20 - 10, 0, Math.random() * 20 - 10);
+
+                var randomRotation = Math.random() * 2 * Math.PI; // 随机角度（0到2π之间）
+                lod_vache.rotation.y = randomRotation;
+
+                troupeau_vaches.add(lod_vache);
+            }
+
+            scene.add(troupeau_vaches);
+        }
+        //skybox
+        var textures_skybox = [
+            "./objets/skybox/xp.jpg", "./objets/skybox/xn.jpg",
+            "./objets/skybox/yp.jpg", "./objets/skybox/yn.jpg",
+            "./objets/skybox/zp.jpg", "./objets/skybox/zn.jpg",
+        ];
+        scene.background = new THREE.CubeTextureLoader().load( textures_skybox );
+        //keyboard
+        raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 10);
+        var axesHelperAdded = false;
+        var gridHelperAdded = false;
+        document.addEventListener('keydown', onKeyDown, false);
+        document.addEventListener('keyup', onKeyUp, false);
+        function onKeyDown(event) {
+            switch (event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    moveForward = true;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    moveLeft = true;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    moveBackward = true;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    moveRight = true;
+                    break;
+                case 'KeyX': 
+                    if (axesHelperAdded) {
+                        scene.remove(axesHelper);
+                        axesHelperAdded = false;
+                    } else {
+                        scene.add(axesHelper);
+                        axesHelperAdded = !axesHelperAdded;
+                    }
+                    break;
+                case 'KeyG': 
+                    if (gridHelperAdded) {
+                        scene.remove(gridHelper);
+                        gridHelperAdded = false;
+                    } else {
+                        scene.add(gridHelper);
+                        gridHelperAdded = !gridHelperAdded;
+                    }
+                    break;
+                case 'KeyF': 
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else {
+                        document.documentElement.requestFullscreen();
+                    }
+                    break;
+                case 'Space':
+                        if ( canJump === true ) velocity.y += 350;
+                        canJump = false;
+                        break;
+            }
+            event.preventDefault();
+        }
+        function onKeyUp(event) {
+            switch (event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    moveForward = false;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    moveLeft = false;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    moveBackward = false;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    moveRight = false;
+                    break;
+                
+            }
+        }
+        console.log(camera.position.x, camera.position.y, camera.position.z) 
+        //first person view
+        //
+        var controls = new PointerLockControls(camera, document.body);
+        scene.add(controls.getObject());
+
+        document.addEventListener('click', function() {
+            controls.lock();
+        });
+
+        controls.addEventListener('lock', function() {
+           console.log(camera.position.x, camera.position.y, camera.position.z) 
+        });
+
+        controls.addEventListener('unlock', function() {
+            
+        });
+
+        //resize
+        window.addEventListener( 'resize', onWindowResize, false );
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize( window.innerWidth, window.innerHeight );
+        }
+        //animate
+        var animate = function () {
+            requestAnimationFrame( animate );
+
+            stats.update();
+            var time = performance.now(); 
+            scene.traverse( function ( object ) {
+            if ( object instanceof THREE.LOD ) {
+                object.update( camera );
+                }
+            } );
+
+            if ( controls.isLocked === true ) {
+                raycaster.ray.origin.copy( controls.getObject().position );
+                raycaster.ray.origin.y -= 10;
+
+                const intersections = raycaster.intersectObjects( objects, false );
+
+                const onObject = intersections.length > 0;
+
+                const delta = ( time - prevTime ) / 1000;
+
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+
+                velocity.y -= 9.8 * 100.0 * delta; 
+
+                direction.z = Number( moveForward ) - Number( moveBackward );
+                direction.x = Number( moveRight ) - Number( moveLeft );
+                direction.normalize(); 
+
+                if ( moveForward || moveBackward ) velocity.z -= direction.z * 400.0 * delta;
+                if ( moveLeft || moveRight ) velocity.x -= direction.x * 400.0 * delta;
+
+                if ( onObject === true ) {
+
+                    velocity.y = Math.max( 0, velocity.y );
+                    canJump = true;
+
+                }
+
+                controls.moveRight( - velocity.x * delta );
+                controls.moveForward( - velocity.z * delta );
+
+                controls.getObject().position.y += ( velocity.y * delta ); // new behavior
+
+                if ( controls.getObject().position.y < 2 ) {
+
+                    velocity.y = 0;
+                    controls.getObject().position.y = 1 ;
+
+                    canJump = true;
+
+                }           
+            }
+            prevTime = time;
+            renderer.render( scene, camera );
+            document.getElementById("info").innerHTML = "Triangles : "
+                                    + renderer.info.render.triangles;
+        };
+        animate();
+    </script>
+</body>
+</html>

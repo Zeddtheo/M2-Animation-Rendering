@@ -1,0 +1,15 @@
+<RCC>
+    <qresource prefix="/">
+        <file>shaders/aquarium.fsh</file>
+        <file>shaders/aquarium.vsh</file>
+        <file>textures/puff.png</file>
+        <file>textures/puffs.png</file>
+        <file>textures/ground.jpg</file>
+        <file>shaders/poisson.fsh</file>
+        <file>shaders/poisson.vsh</file>
+        <file>shaders/predateur.fsh</file>
+        <file>shaders/predateur.vsh</file>
+        <file>shaders/obstacle.fsh</file>
+        <file>shaders/obstacle.vsh</file>
+    </qresource>
+</RCC>

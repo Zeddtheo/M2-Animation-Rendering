@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>TP3-Animation et Rendu</title>
+  </head>
+  <body>
+    <!-- <script src="../three.js-master/build/three.js"></script> -->
+    <!-- <script src="../three.js-master/src/helpers/AxesHelper.js"></script> -->
+    <!-- <script src="../three.js-master/examples/jsm/controls/OrbitControls.js"></script> -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../three.js-master/build/three.module.js",
+          "three/addons/": "../three.js-master/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      var scene = new THREE.Scene();
+      scene.background = new THREE.Color("rgb(0, 0, 0)");
+      var camera = new THREE.PerspectiveCamera(
+        45,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        10000
+      );
+
+      var renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      //cube 1
+      var geometry = new THREE.BoxGeometry(1, 1, 1);
+      var material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+      var cube1 = new THREE.Mesh(geometry, material);
+      cube1.position.set(-3, 1, 0);
+      scene.add(cube1);
+      //cube 2
+      var geometry = new THREE.BoxGeometry(1, 1, 1);
+      var material = new THREE.MeshPhongMaterial({
+        color: 0xff0000,
+        specular: 0xffffff,
+        shininess: 40,
+      });
+      var cube2 = new THREE.Mesh(geometry, material);
+      cube2.position.set(3, 1, 0);
+      scene.add(cube2);
+      //sphere
+      var geometry = new THREE.SphereGeometry(0.8, 32, 32);
+      var material = new THREE.MeshPhongMaterial({
+        color: 0xffff00,
+        specular: 0xffffff,
+        shininess: 40,
+      });
+      var sphere = new THREE.Mesh(geometry, material);
+      sphere.position.set(0, 1, 0);
+      scene.add(sphere);
+      //cylinder
+      var geometry = new THREE.CylinderGeometry(1, 1, 2, 32);
+      var material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+      var cylinder = new THREE.Mesh(geometry, material);
+      cylinder.position.set(0, 1, -5);
+      scene.add(cylinder);
+      //cone
+      var geometry = new THREE.ConeGeometry(1, 2, 32);
+      var material = new THREE.MeshBasicMaterial({ color: 0x0f0f00 });
+      var cone = new THREE.Mesh(geometry, material);
+      cone.position.set(0, 1, 5);
+      scene.add(cone);
+      //torus
+      var geometry = new THREE.TorusGeometry(2.5, 0.5, 32, 32);
+      var material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+      var torus = new THREE.Mesh(geometry, material);
+      torus.position.set(0, 5, 0);
+      scene.add(torus);
+
+      //lumiere
+      var lumiere = new THREE.AmbientLight(0x404040);
+      scene.add(lumiere);
+      var lumiere = new THREE.DirectionalLight(0xffffff);
+      lumiere.position.set(1, 1, 1);
+      scene.add(lumiere);
+      //helpers
+      var axesHelper = new THREE.AxesHelper(5);
+      var size = 20;
+      var divisions = 10;
+      var gridHelper = new THREE.GridHelper(size, divisions);
+      //plane
+      var texture = new THREE.TextureLoader().load("pics/sol.jpg");
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(5, 5);
+
+      var geometry = new THREE.PlaneGeometry(20, 20, 32);
+      var material = new THREE.MeshPhongMaterial({
+        color: 0x00ff00,
+        specular: 0xffffff,
+        shininess: 40,
+        map: texture,
+      });
+      var plane = new THREE.Mesh(geometry, material);
+      scene.add(plane);
+      plane.rotation.set(-Math.PI / 2, 0, 0);
+      //fog
+      scene.fog = new THREE.Fog(0xcccccc, 10, 50);
+
+      camera.position.set(0, 0, 8);
+      //controls
+      var controls = new OrbitControls(camera, renderer.domElement);
+      var axesHelperAdded = false;
+      var gridHelperAdded = false;
+      window.addEventListener(
+        "keydown",
+        function (event) {
+          switch (event.key) {
+            case "a":
+              if (axesHelperAdded) {
+                scene.remove(axesHelper);
+                axesHelperAdded = false;
+              } else {
+                scene.add(axesHelper);
+                axesHelperAdded = !axesHelperAdded;
+              }
+              break;
+            case "g":
+              if (gridHelperAdded) {
+                scene.remove(gridHelper);
+                gridHelperAdded = false;
+              } else {
+                scene.add(gridHelper);
+                gridHelperAdded = !gridHelperAdded;
+              }
+              break;
+            case "ArrowDown":
+              console.log("down");
+              break;
+            case "Escape":
+              console.log("esc");
+              break;
+            default:
+              return;
+          }
+          event.preventDefault();
+        },
+        true
+      );
+
+      var animate = function () {
+        requestAnimationFrame(animate);
+        cube1.rotation.x += 0.01;
+        cube1.rotation.y += 0.01;
+
+        cube2.rotation.x += 0.01;
+        cube2.rotation.y += 0.01;
+
+        sphere.rotation.x += 0.01;
+        sphere.rotation.y += 0.01;
+
+        //cylinder rotate around y axis
+        cylinder.rotation.y += 0.01;
+
+        torus.rotation.z += 0.01;
+
+        controls.update();
+
+        renderer.render(scene, camera);
+      };
+      animate();
+    </script>
+  </body>
+</html>
